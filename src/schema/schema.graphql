@@ -1,0 +1,27 @@
+type Query {
+  getAllUsers: [User]!
+}
+type Mutation {
+  createUser(
+    id: ID
+    email: String!
+    firstname: String!
+    lastname: String!
+    age: Int
+  ): User
+  updateUser(email: String, school: String, isOnline: Boolean): User
+}
+type Subscription {
+  getAllUsers: [User]!
+}
+type User {
+  id: ID!
+  email: String!
+  firstname: String!
+  lastname: String!
+  age: Int
+  school: String
+  createdAt: String
+  updatedAt: String
+  isOnline: Boolean
+}
