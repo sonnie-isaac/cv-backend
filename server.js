@@ -1,40 +1,44 @@
+/* eslint-disable no-multi-assign */
 /* eslint-disable no-shadow */
 const express = require("express");
 const http = require("http");
 const path = require("path");
-
-const cors = require("cors");
 const firebaseAdmin = require("firebase-admin");
 const cookieParser = require("cookie-parser");
-const { ApolloServer, AuthenticationError } = require("apollo-server-express");
-const { makeExecutableSchema } = require("@graphql-tools/schema");
+const socketio = require("socket.io");
+const cors = require('cors');
 const authRouter = require("./src/routes/auth");
-const { createStore } = require("./src/utils/store");
-const UserAPI = require("./src/datasources/user");
-const { typeDefs, resolvers } = require("./src/schema/users.shema");
+const usersRouter = require("./src/routes/userData");
+const pageRouter = require("./src/routes/pageData");
+const db = require("./src/models");
+const SocketManager = require('./socketManager');
+const campuses = require('./testSchools');
+
+var corsOptions = {
+  origin: 'http://localhost:3000',
+  credentials: true, 
+}
 
 const port = parseInt(process.env.PORT, 10) || 4000;
 const admin = firebaseAdmin.initializeApp();
+const server = express();
+server.use(cors(corsOptions));
+const httpServer = http.createServer(server);
+const io = socketio(httpServer);
 
-const store = createStore();
-const dataSources = () => ({
-  userAPI: new UserAPI({ store }),
-});
-
-const app = express();
-// app.use(cors());
-app.use(express.json());
-app.use(cookieParser());
-app.use(express.urlencoded({ extended: false }));
-app.use(express.static(path.join(__dirname, "public")));
+server.use(express.json());
+server.use(cookieParser());
+server.use(express.urlencoded({ extended: true }));
+server.use(express.static(path.join(__dirname, "public")));
+io.on('connection', SocketManager({ io, db }));
 
 function attachCsrfToken(cookie, value) {
   return (req, res, next) => {
+    res.header('Access-Control-Allow-Credentials', 'true');
     res.cookie(cookie, value);
     next();
   };
 }
-
 function checkIfSignedIn() {
   return (req, res, next) => {
     const sessionCookie = (req.cookies && req.cookies.session) || "";
@@ -43,74 +47,67 @@ function checkIfSignedIn() {
       .verifySessionCookie(sessionCookie, true /** check if revoked. */)
       .then((decodedClaims) => {
         req.user = decodedClaims;
-        console.log("cookies:", req.cookies);
         next();
       })
-      .catch(() => {
-        next();
+      .catch((error) => {
+        res.status(401).send({ message: "Unathorized access", error });
       });
   };
 }
 
-app.use(
+server.use(
   attachCsrfToken("csrfToken", (Math.random() * 100000000000000000).toString())
 );
-app.use(checkIfSignedIn());
-app.use("/auth", authRouter);
+server.use("/auth", authRouter);
+server.use(checkIfSignedIn());
 
-const context = ({ req, res }) => {
-  console.log("from inside graphql:", req.headers.authorization);
-  return { user: "me" };
-};
+server.use("/userData", usersRouter);
+server.use("/pageData", pageRouter);
 
-const server = new ApolloServer({
-  typeDefs,
-  resolvers,
-  dataSources,
-  context,
-  playground: true,
-});
-
-/* const schema = makeExecutableSchema({
-  typeDefs,
-  resolvers,
-});
-
-app.use(
-  "/api",
-  // eslint-disable-next-line arrow-body-style
-  graphqlHTTP((req, res) => {
-    const { user } = req;
-    console.log("from inside graphql:", req.cookies);
-    console.log("from inside graphql:", user);
-    console.log("from inside graphql:", req.headers.authorization);
-    // if (!user) throw new Error("You must be logged in");
-    return {
-      schema,
-      context: { startTime: Date.now(), dataSources, user },
-      graphiql: true,
-    };
-  })
-); */
-server.applyMiddleware({ app });
-
-http.createServer(app).listen(port, (err) => {
-  if (err) throw err;
-  console.log("🚀 Ready at http://localhost:4000/api");
-});
-
-/*
-const context = async ({ req }) => {
-  console.log(req.cookies);
-  const sessionCookie = (req.cookies && req.cookies.session) || "";
+server.get('/create-campuses', (req, res) => {
   try {
-    const user = await admin
-      .auth()
-      .verifySessionCookie(sessionCookie, true );
-      console.log(user);
-      return { user };
-    } catch (err) {
-      throw new AuthenticationError("You must be logged in");
-    }
-  };
-  */
+    campuses.forEach(async (c) => {
+      const path = c.code.replace(/ /g, '-');
+      await db.Campus.create({
+        name: c.name,
+        alias: c.code,
+        path,
+        description: `Welcome to the official page of ${c.name}. Everything ${c.code} 📗 📚 💻`
+      });
+    });
+    res.status(200).send('all campus pages created');
+  } catch (err) {
+    res.status(404).json(err);
+  }
+});
+server.get('/create-generals', async (req, res) => {
+  try {
+    const general = await db.Page.create({
+      name: 'general',
+      description: 'This page represents the meeting point of all members. Any one from any campus can post and respond on this group',
+      path: 'general'
+    });
+    const announcement = await db.Page.create({
+      name: 'announcement',
+      description: 'This page is exclusively for announcements and news updates',
+      path: 'announcements'
+    });
+    res.status(200).send({ general, announcement });
+  } catch (err) {
+    res.status(404).json(err);
+  }
+});
+
+db.sequelize
+  .authenticate()
+  .then(async () => {
+    // await db.sequelize.sync();
+    // await db.sequelize.sync({ force: true });
+    console.log("Database connected!!");
+  })
+  .catch((err) => console.log(err));
+
+httpServer.listen(port, (err) => {
+  if (err) throw err;
+  console.log(`> Ready on http://localhost:${port}`);
+});

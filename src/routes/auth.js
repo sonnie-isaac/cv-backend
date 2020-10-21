@@ -1,57 +1,74 @@
 const express = require("express");
 const admin = require("firebase-admin");
+const { User, Campus, Page, Friend } = require("../models");
 
 const router = express.Router();
 
-router.get("/user", (req, res) => {
+router.get("/", (req, res) => {
   const sessionCookie = (req.cookies && req.cookies.session) || "";
   admin
     .auth()
     .verifySessionCookie(sessionCookie, true /** check if revoked. */)
-    .then((decodedClaims) => res.status(200).json(decodedClaims))
+    .then(async (decodedClaims) => {
+      const { email } = decodedClaims;
+      const user = await User.findOne({ where: { email }, include: { all: true } });
+      return res.status(200).json(user);
+    })
     .catch((error) => {
       res.status(401).send({ message: "Unathorized access", error });
     });
 });
 
-router.post("/register", (req, res) => {
-  const { email, password, firstname, lastname, school } = req.body;
-  console.log(req.body);
-  admin
-    .auth()
-    .createUser({
-      email,
-      emailVerified: false,
-      password,
-      displayName: `${firstname} ${lastname}`,
-      disabled: false,
-    })
-    .then((userRecord) => {
-      // admin.auth().generateEmailVerificationLink;
-      console.log(userRecord);
-      const { uid, displayName } = userRecord;
-      const { creationTime } = userRecord.metadata;
-      admin.firestore().doc(`users/${uid}`).set({
+router.post("/register", async (req, res) => {
+  const { email, password, username, firstname, lastname, school } = req.body;
+  const errors = {};
+  try {
+    const userRecord = await admin
+      .auth()
+      .createUser({
         email,
-        school,
-        uid,
         emailVerified: false,
-        displayName,
-        creationTime,
+        password,
+        displayName: `${firstname} ${lastname}`,
+        disabled: false,
       });
-      return userRecord;
-    })
-    .then((userRecord) => res.status(201).send(userRecord))
-    .catch((error) => {
-      console.log(error);
-      return res.status(400).json(error);
+    const { uid } = userRecord;
+
+    const user = await User.create({
+      email,
+      username,
+      school,
+      firebase_uid: uid,
+      emailVerified: false,
+      firstname,
+      lastname,
     });
+    await Friend.create({ username });
+    const userCampus = await Campus.findOne({ where: { name: school } });
+    const generalPage = await Page.findOne({ where: { name: 'general' } });
+    const announcementPage = await Page.findOne({ where: { name: 'announcement' } });
+    await user.setCampus(userCampus);
+    await user.addPage(generalPage);
+    await user.addPage(announcementPage);
+
+    return res.status(201).send(user);
+  } catch (err) {
+    console.log(err);
+    if (err.name === 'SequelizeUniqueConstraintError') {
+      err.errors.forEach(
+        (e) => (errors[e.path] = `${e.path} is already taken`)
+      );
+    } else if (err.name === 'SequelizeValidationError') {
+      err.errors.forEach((e) => (errors[e.path] = e.message));
+    }
+    return res.status(400).json(errors);
+  }
 });
 
 router.post("/email-verification", (req, res) => {
   const { email } = req.body;
   const actionCodeSettings = {
-    url: "http://localhost:3000",
+    url: "http://localhost:4000",
   };
   admin
     .auth()
@@ -67,11 +84,11 @@ router.post("/email-verification", (req, res) => {
 });
 
 router.post("/sessionLogin", (req, res) => {
+  console.log('from ses:',req.cookies)
   const idToken = req.body.idToken.toString();
   const csrfToken = req.body.csrfToken.toString();
   // req.headers.authorization = idToken
   // Guard against CSRF attacks.
-  console.log("from sesslog:", req.headers.authorization);
   if (!req.cookies || csrfToken !== req.cookies.csrfToken) {
     res.status(401).send("UNAUTHORIZED REQUEST!");
     return;
@@ -117,8 +134,7 @@ router.get("/logout", (req, res) => {
       .auth()
       .verifySessionCookie(sessionCookie, true)
       .then((decodedClaims) =>
-        admin.auth().revokeRefreshTokens(decodedClaims.sub)
-      )
+        admin.auth().revokeRefreshTokens(decodedClaims.sub))
       .then(() => {
         res.status(200).send({ message: "Logout successful" });
       })
