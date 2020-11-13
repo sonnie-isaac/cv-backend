@@ -35,3 +35,4 @@ yarn-error.log*
 
 yarn.lock
 service-account.json
+/src/utils/dbConfig.js
