@@ -1,60 +1,64 @@
 const express = require("express");
-const admin = require("firebase-admin");
 const { Op } = require('sequelize');
-const { User, Campus, Page, Friend, Post } = require("../models");
+const { User, Campus, Page, Friend, Post, Reply, Picture } = require("../models");
 
 const router = express.Router();
+const TIMELINE = "TIMELINE";
 
 const getFriends = async (username) => {
   const friendObject = await Friend.findOne({ where: { username } });
-  const friends = friendObject ? await friendObject.getUsers() : [];
+  const friends = await friendObject.getUsers();
   return friends;
 };
 
-router.get('/', async (req, res) => {
-  const { email } = req.user;
-  console.log(email)
+router.get('/friends', async (req, res) => {
   try {
-    const user = await User.findOne({ where: { email } });
-    const { id,
-      username,
-      firstname,
-      lastname,
-      school,
-      createdAt,
-      profilePhoto,
-      bio } = user;
-    const chats = await user.getChats();
-    const campus = await user.getCampus();
-    const pages = await user.getPages();
-    const pictures = await user.getPictures();
+    const { username } = req.user;
     const friends = await getFriends(username);
-
-    let pageIds = pages.map((e) => ({ PageId: e.id }));
-    pageIds = [...pageIds, { CampusId: campus.id }, { from: username }];
-    let posts = await Post.findAll({ where: { [Op.or]: pageIds }, include: { all: true }, order: [['createdAt', 'DESC']], });
-    posts = await posts.map(async (e) => {
-      const replyCount = await e.countReplies();
-      const reactionCount = await e.countReactions();
-      const likesCount = await e.countLikes();
-      const { id, to, from, createdAt, content, Reactions, Replies, Pictures, User } = e;
-      return ({ id, to, from, createdAt, content, Reactions, Replies, Pictures, User, replyCount, reactionCount, likesCount });
-    });
-    const data = { id, email, username, firstname, lastname, createdAt, school, profilePhoto, bio, chats, campus, pages, pictures, posts, friends} || null;
-    return res.status(200).json(data);
+    res.status(200).send(friends);
   } catch (error) {
-    console.log(error)
-    return res.status(400).json(error);
+    res.status(400).send(error);
   }
 });
 
-router.post('/createUser', async (req, res) => {
+router.get('/posts', async (req, res) => {
+  const { username } = req.user;
   try {
-    const user = await User.create(req.body);
-    console.log(user);
-    return res.status(200).send({ id: user.id, createdAt: user.createdAt });
+    const posts = await Post.findAll({ where: { from: username }, include: ['uploads'], order: [['createdAt', 'DESC']], });
+    /* posts = await posts.map(async (e) => {
+      const replyCount = await e.countReplies();
+      const reactionCount = await e.countReactions();
+      const likesCount = await e.countLikes();
+      return { ...e, replyCount, reactionCount, likesCount };
+    }); */
+    res.status(200).send(posts);
+  } catch (error) {
+    res.status(400).send(error);
+  }
+});
+
+router.get('/post/replies', async (req, res) => {
+  const { postId } = req.query;
+  try {
+    const replies = await Reply.findAll({ where: { postId }, include: 'user' });
+    return res.status(200).send(replies);
   } catch (err) {
-    console.log(err);
+    return res.status(400).send(err);
+  }
+});
+
+router.post('/posts/timeline', async (req, res) => {
+  try {
+    const { id } = req.user;
+    const { content, from, to } = req.body;
+    const post = await Post.create({
+      content,
+      from,
+      to
+    });
+    await post.setUser(id);
+    return res.status(200).send(post);
+  } catch (err) {
     return res.status(400).send(err);
   }
 });
@@ -66,12 +70,7 @@ router.post('/updateUser', async (req, res) => {
     const user = await User.findOne({ where: { email: req.body.email } });
     arr.forEach((e) => (user[e[0]] = e[1]));
     await user.save();
-    return res.status(200).send({
-      ...req.body,
-      id: user.id,
-      createdAt: user.createdAt,
-      updatedAt: user.updatedAt,
-    });
+    return res.status(200).send(user);
   } catch (err) {
     return res.status(400).send(err);
   }
@@ -79,10 +78,9 @@ router.post('/updateUser', async (req, res) => {
 
 router.post('/setCampus', async (req, res) => {
   try {
-    const { username, campusId } = req.body;
+    const { userId, campusId } = req.body;
     const campus = await Campus.findOne({ where: { id: campusId } });
-    const user = await User.findOne({ where: { username } });
-    await user.setCampus(campus);
+    await campus.addUser(userId);
     return res.status(200).send(campus);
   } catch (err) {
     return res.status(400).send(err);
@@ -91,10 +89,9 @@ router.post('/setCampus', async (req, res) => {
 
 router.post('/addPage', async (req, res) => {
   try {
-    const { username, pageId } = req.body;
+    const { userId, pageId } = req.body;
     const page = await Page.findOne({ where: { id: pageId } });
-    const user = await User.findOne({ where: { username } });
-    await user.addPage(page);
+    await page.addUser(userId);
     return res.status(200).send(page);
   } catch (err) {
     return res.status(400).send(err);
@@ -103,11 +100,10 @@ router.post('/addPage', async (req, res) => {
 
 router.post('/addFriend', async (req, res) => {
   try {
-    const { username, friendUsername } = req.body;
-    const friend = await Friend.findOne({ where: { username: friendUsername } });
-    const user = await User.findOne({ where: { username } });
-    const friendInfo = await User.findOne({ where: { username: friendUsername } });
-    await user.addFriend(friend);
+    const { userId, friendId } = req.body;
+    const friend = await Friend.findOne({ where: { id: friendId } });
+    const friendInfo = await User.findOne({ where: { username: friend.username } });
+    await friend.addUser(userId);
     return res.status(200).send(friendInfo);
   } catch (err) {
     return res.status(400).send(err);

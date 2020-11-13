@@ -2,10 +2,9 @@ const { Model } = require("sequelize");
 
 module.exports = (sequelize, DataTypes) => {
   class Campus extends Model {
-    static associate({ User, Post, Picture }) {
-      this.hasMany(User);
-      this.hasMany(Post);
-      this.hasMany(Picture);
+    static associate({ User, Picture }) {
+      this.hasMany(User, { as: 'members', onDelete: 'SET NULL' });
+      this.hasMany(Picture, { as: 'uploads', onDelete: 'SET NULL' });
     }
   }
   Campus.init(

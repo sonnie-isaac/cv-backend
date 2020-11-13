@@ -2,12 +2,11 @@ const { Model } = require("sequelize");
 
 module.exports = (sequelize, DataTypes) => {
   class Picture extends Model {
-    static associate({ User, Group, Post, Page, Campus }) {
-      this.belongsTo(User);
-      this.belongsTo(Group);
-      this.belongsTo(Post);
-      this.belongsTo(Page);
-      this.belongsTo(Campus);
+    static associate({ User, Group, Page, Campus }) {
+      this.belongsTo(User, { as: 'user', foreignKey: 'userId' });
+      this.belongsTo(Group, { as: 'group', foreignKey: 'groupId' });
+      this.belongsTo(Page, { as: 'page', foreignKey: 'pageId' });
+      this.belongsTo(Campus, { as: 'campus', foreignKey: 'campusId' });
     }
   }
   Picture.init(

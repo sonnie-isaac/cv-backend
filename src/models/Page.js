@@ -2,10 +2,9 @@ const { Model } = require("sequelize");
 
 module.exports = (sequelize, DataTypes) => {
   class Page extends Model {
-    static associate({ User, Post, Picture }) {
-      this.belongsToMany(User, { through: 'UserPages' });
-      this.hasMany(Post);
-      this.hasMany(Picture);
+    static associate({ User, Picture }) {
+      this.belongsToMany(User, { through: 'UserPages', as: 'users', onDelete: 'CASCADE' });
+      this.hasMany(Picture, { as: 'uploads', onDelete: 'SET NULL' });
     }
   }
   Page.init(

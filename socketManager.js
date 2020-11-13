@@ -1,35 +1,13 @@
 const { USER_CONNECTED, USERLIST, USER_DISCONNECTED,
   LOGOUT, COMMUNITY_CHAT, MESSAGE_RECIEVED, MESSAGE_SENT,
-  TYPING, PRIVATE_MESSAGE } = require('./src/socket/eventsNode');
+  TYPING, PRIVATE_MESSAGE, GET_CHAT, MESSAGE_REQUEST } = require('./src/socket/eventsNode');
 
 const getTime = (date) => `${date.getHours()}:${("0" + date.getMinutes()).slice(-2)}`;
-
-const createMessage = ({ message = "", sender = "", db } = { }) => (
-  {
-    time: getTime(new Date(Date.now())),
-    message,
-    sender
-  }
-
-);
 
 let connectedUsers = {};
 
 module.exports = function ({ io, db }) {
   return function (socket) {
-    function sendTypingToChat(user) {
-      return (chatId, isTyping) => {
-        io.emit(`${TYPING}-${chatId}`, { user, isTyping });
-      };
-    }
-
-    function sendMessageToChat(sender) {
-      return (chatId, message) => {
-        // first save messave to chart in db
-        io.emit(`${MESSAGE_RECIEVED}-${chatId}`, createMessage({ message, sender }));
-      };
-    }
-
     function addUser(userList, user) {
       const newList = { ...userList };
       newList[user.name] = user;
@@ -44,11 +22,31 @@ module.exports = function ({ io, db }) {
 
     console.log("Socket Id:" + socket.id);
 
-    let sendMessageToChatFromUser;
-    // io.emit(`${MESSAGE_RECIEVED}-${chatId}`, createMessage({ message, sender }))
+    const sendMessageToChat = async (chatId, message, reciever) => {
+      try {
+        if (reciever in connectedUsers) {
+          const recieverSocket = connectedUsers[reciever].socketId;
+          const chat = await db.Chat.findOne({ where: { id: chatId } });
+          const newMessage = await db.Message.create(message);
+          await chat.addMessage(newMessage);
+          socket.to(recieverSocket).emit(MESSAGE_RECIEVED, { message: newMessage, chatId });
+        } else {
+          const chat = await db.Chat.findOne({ where: { id: chatId } });
+          const newMessage = await db.Message.create(message);
+          // await newMessage.setChat(chat);
+          await chat.addMessage(newMessage);
+          console.log(newMessage);
+        }
+      } catch (err) {
+        console.log('ERROR:', err);
+      }
+    };
 
-    let sendTypingFromUser; // io.emit(`${TYPING}-${chatId}`, { user, isTyping });
+    const sendTypingToChat = (chatId, isTyping, user) => {
+      io.emit(`${TYPING}-${chatId}`, { user, isTyping });
+    };
     let userChats;
+    const fetchCount = 0;
 
     // User Connects with username
     socket.on(USER_CONNECTED, (user) => {
@@ -62,9 +60,6 @@ module.exports = function ({ io, db }) {
       user.socketId = socket.id;
       connectedUsers = addUser(connectedUsers, user);
       socket.user = user;
-
-      sendMessageToChatFromUser = sendMessageToChat(user.name);
-      sendTypingFromUser = sendTypingToChat(user.name);
 
       socket.emit(USERLIST, connectedUsers);
       io.emit(USER_CONNECTED, user);
@@ -87,52 +82,58 @@ module.exports = function ({ io, db }) {
       console.log("Disconnect", connectedUsers);
     });
 
-    socket.on(MESSAGE_SENT, ({ chatId, message }) => {
-      sendMessageToChatFromUser(chatId, message);
+    socket.on(MESSAGE_SENT, ({ chatId, message, reciever }) => {
+      sendMessageToChat(chatId, message, reciever);
     });
 
     socket.on(TYPING, ({ chatId, isTyping }) => {
-      sendTypingFromUser(chatId, isTyping);
+      sendTypingToChat(chatId, isTyping);
     });
 
     // click on friend/chat calls socket.emit(PRIVATE_MESSAGE, {reciever, sender:user.username})
 
-    socket.on(PRIVATE_MESSAGE, async ({ reciever, sender }) => {
-      const users = [reciever, sender];
-      if (reciever in connectedUsers) {
-        const recieverSocket = connectedUsers[reciever].socketId;
-        const proposedName = users.sort().join();
-        if (proposedName in userChats) {
-          socket.to(recieverSocket).emit(PRIVATE_MESSAGE, userChats[proposedName]);
-          socket.emit(PRIVATE_MESSAGE, userChats[proposedName]);
-        } else {
+    socket.on(PRIVATE_MESSAGE, async ({ reciever, sender, name }) => {
+      // const users = [reciever, sender];
+      try {
+        if (reciever in connectedUsers) {
+          const recieverSocket = connectedUsers[reciever].socketId;
+
           const newChat = await db.Chat.create({
-            name: proposedName,
+            name,
           });
-          userChats[proposedName] = newChat;
+          userChats[name] = newChat;
           const user1 = await db.User.findOne({ where: { username: sender } });
           const user2 = await db.User.findOne({ where: { username: reciever } });
           await newChat.addUser(user1);
           await newChat.addUser(user2);
-          socket.to(recieverSocket).emit(PRIVATE_MESSAGE, newChat);
-          socket.emit(PRIVATE_MESSAGE, newChat);
-        }
-      } else {
-        const proposedName = users.sort().join();
-        if (proposedName in userChats) {
-          socket.emit(PRIVATE_MESSAGE, userChats[proposedName]);
+          socket.to(recieverSocket).emit(MESSAGE_REQUEST, { chat: newChat, users: [user1, user2] });
+          socket.emit(PRIVATE_MESSAGE, { chat: newChat, users: [user1, user2] });
         } else {
           const newChat = await db.Chat.create({
-            name: proposedName,
+            name,
           });
-          userChats[proposedName] = newChat;
+          console.log(newChat);
+          userChats[name] = newChat;
           const user1 = await db.User.findOne({ where: { username: sender } });
           const user2 = await db.User.findOne({ where: { username: reciever } });
           await newChat.addUser(user1);
           await newChat.addUser(user2);
-          socket.emit(PRIVATE_MESSAGE, newChat);
+          socket.emit(PRIVATE_MESSAGE, { chat: newChat, users: [user1, user2] });
         }
+      } catch (err) {
+        console.log(err);
       }
     });
+
+    /* socket.on(GET_CHAT, async (name) => {
+      try {
+        const chat = await db.Chat.findOne({ where: { name }, include: ['users', 'messages'] });
+        socket.emit(GET_CHAT, chat);
+        fetchCount += 1;
+        console.log('chat fetched:', fetchCount);
+      } catch (err) {
+        console.log(err);
+      }
+    }); */
   };
 };

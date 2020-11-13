@@ -2,10 +2,9 @@ const { Model } = require("sequelize");
 
 module.exports = (sequelize, DataTypes) => {
   class Group extends Model {
-    static associate({ User, Post, Picture }) {
-      this.belongsToMany(User, { through: 'UserGroups' });
-      this.hasMany(Post);
-      this.hasMany(Picture);
+    static associate({ User, Picture }) {
+      this.belongsToMany(User, { through: 'UserGroups', as: 'users', onDelete: 'CASCADE' });
+      this.hasMany(Picture, { as: 'uploads', onDelete: 'CASCADE', /* hooks: true */ });
     }
   }
   Group.init(

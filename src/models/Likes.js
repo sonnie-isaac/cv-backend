@@ -2,10 +2,7 @@ const { Model } = require("sequelize");
 
 module.exports = (sequelize, DataTypes) => {
   class Like extends Model {
-    static associate({ User, Message, Post }) {
-      this.belongsTo(Message);
-      this.belongsTo(User);
-      this.belongsTo(Post);
+    static associate(models) {
     }
   }
   Like.init(
@@ -19,6 +16,7 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.STRING,
         allowNull: false,
       },
+      userAvatar: DataTypes.STRING,
     },
     {
       sequelize,

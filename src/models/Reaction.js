@@ -2,10 +2,8 @@ const { Model } = require("sequelize");
 
 module.exports = (sequelize, DataTypes) => {
   class Reaction extends Model {
-    static associate({ User, Message, Post }) {
-      this.belongsTo(Message);
-      this.belongsTo(User);
-      this.belongsTo(Post);
+    static associate({ Message }) {
+      this.belongsTo(Message, { as: 'message', foreignKey: 'messageId' });
     }
   }
   Reaction.init(
@@ -19,6 +17,7 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.STRING,
         allowNull: false,
       },
+      username: DataTypes.STRING,
     },
     {
       sequelize,

@@ -2,17 +2,13 @@ const { Model } = require("sequelize");
 
 module.exports = (sequelize, DataTypes) => {
   class User extends Model {
-    static associate({ Post, Picture, Reaction, Group, Friend, Chat, Reply, Page, Campus, Like }) {
-      this.belongsToMany(Group, { through: 'UserGroups' });
-      this.belongsToMany(Chat, { through: 'UserChats' });
-      this.belongsToMany(Page, { through: 'UserPages' });
-      this.belongsToMany(Friend, { through: 'UserFriends' });
-      this.belongsTo(Campus);
-      this.hasMany(Picture);
-      this.hasMany(Post);
-      this.hasMany(Reaction);
-      this.hasMany(Reply);
-      this.hasMany(Like);
+    static associate({ Picture, Group, User, Chat, Page, Campus }) {
+      this.belongsToMany(Group, { through: 'UserGroups', as: 'groups' });
+      this.belongsToMany(Chat, { through: 'UserChats', as: 'chats' });
+      this.belongsToMany(Page, { through: 'UserPages', as: 'pages' });
+      this.hasMany(User, { as: 'friends' });
+      this.belongsTo(Campus, { as: 'campus', foreignKey: 'campusId' });
+      this.hasMany(Picture, { as: 'photos' });
     }
   }
   User.init(
@@ -27,6 +23,10 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: false,
         unique: true,
       },
+      password: {
+        type: DataTypes.STRING,
+        allowNull: false,
+      },
       email: {
         type: DataTypes.STRING(100),
         allowNull: false,
@@ -40,12 +40,13 @@ module.exports = (sequelize, DataTypes) => {
       },
       firstname: DataTypes.STRING,
       lastname: DataTypes.STRING,
+      fullname: DataTypes.STRING,
       school: DataTypes.STRING,
       isOnline: DataTypes.BOOLEAN,
       profilePhoto: DataTypes.TEXT,
-      firebase_uid: DataTypes.STRING,
       emailVerified: DataTypes.BOOLEAN,
       bio: DataTypes.TEXT,
+      friendId: DataTypes.INTEGER,
     },
     {
       sequelize,
@@ -53,6 +54,12 @@ module.exports = (sequelize, DataTypes) => {
       tableName: "users",
     }
   );
+  User.prototype.addToUser = function (user) {
+    return this.update({ friendId: user.id });
+  };
+  User.prototype.getUser = function () {
+    return this.sequelize.models.User.findByPk(this.friendId);
+  };
 
   return User;
 };

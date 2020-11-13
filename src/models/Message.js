@@ -2,10 +2,10 @@ const { Model } = require("sequelize");
 
 module.exports = (sequelize, DataTypes) => {
   class Message extends Model {
-    static associate({ Reaction, Chat, Like }) {
-      this.hasMany(Reaction);
-      this.hasMany(Like);
-      this.belongsTo(Chat);
+    static associate({ Reaction, Chat, Message }) {
+      this.hasMany(Reaction, { as: 'reactions', onDelete: 'SET NULL' });
+      this.belongsTo(Chat, { as: 'chat', foreignKey: 'chatId' });
+      this.hasOne(Message, { as: 'reply', onDelete: 'CASCADE' });
     }
   }
   Message.init(
@@ -21,6 +21,7 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.STRING,
         allowNull: false,
       },
+      replyId: DataTypes.INTEGER,
     },
     {
       sequelize,
@@ -28,5 +29,12 @@ module.exports = (sequelize, DataTypes) => {
       tableName: "messages",
     }
   );
+  Message.prototype.setReplyingTo = function (replyingToMessage) {
+    return this.update({ replyId: replyingToMessage.id });
+  };
+  Message.prototype.getReplyingTo = function () {
+    return this.sequelize.models.Message.findByPk(this.replyId);
+  };
+
   return Message;
 };
